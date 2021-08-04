@@ -5,7 +5,9 @@ use tiff::encoder::colortype;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use ordered_float::OrderedFloat;
-
+use std::sync::Arc;
+use std::thread;
+use std::sync::Mutex;
 // This makes the csv crate accessible to your program.
 extern crate csv;
 // Import the standard library's I/O module so we can read from stdin.
@@ -35,6 +37,15 @@ impl PartialOrd for Cell {
     }
 }
 fn main() {
+    /*
+    let five = Arc::new("sinko");
+    for _ in 0..10 {
+        let five = Arc::clone(&five);
+        thread::spawn(move || {
+            println!("{:?}", five);
+        });
+    }
+    */
     let mut rows=0;
     let mut cols=0;
     let fric_img = match leer_img("fric_t2.tif",&mut rows,&mut cols){
@@ -56,27 +67,44 @@ fn main() {
             }
         }
     } 
-    let mut idw_matrix = Vec::new();
-    idw_matrix.resize(fric_img.len(),0f32);
-   /* println!("rows: {} cols: {}",rows,cols);
-    println!("{:?}",localidades); 
-    println!("{:?}",fric_img);
-    println!("{:?}",idw_matrix);*/
-    for com in localidades.iter(){
-        println!("{:?}",com);
-        let cd_matrix=cd_met(com,rows, cols,&fric_img);    
-        println!("{:?}",cd_matrix);
-        idw_met(com,&cd_matrix, &mut idw_matrix);    
+    let mut idw_final = Vec::new();
+    idw_final.resize(fric_img.len(),0f32);
+
+    let localidades2=localidades.clone();
+    let fric_img=Arc::new(fric_img);
+    let idw_final=Arc::new(Mutex::new(idw_final));
+
+    let mut handles = vec![];
+
+    while let Some(com) = localidades.pop(){
+        let fric_img = Arc::clone(&fric_img);
+        let idw_final=Arc::clone(&idw_final);
+        let handle= thread::spawn(move || {
+            let cd_matrix=cd_met(&com,rows, cols,&fric_img);    
+            let idw_parcial=idw_met(&com,&cd_matrix);    
+            let mut idw_final= idw_final.lock().unwrap();
+            for a in 0..idw_final.len(){
+                idw_final[a]+=idw_parcial[a];
+            }
+        });
+
+        handles.push(handle);
     }
-    for com in localidades.iter() {
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let mut idw_final=idw_final.lock().unwrap();
+    for com in localidades2.iter() {
         let it =((cols*com.row)+com.col) as usize;
-        idw_matrix[it]=-9999.0;
+        idw_final[it]=-9999.0;
     }
-    println!("{:?}", idw_matrix);
-    let archivo= File::create("IDW_t2.tif").unwrap();
+    println!("{:?}", idw_final);
+    let archivo= File::create("IDW_t2_p.tif").unwrap();
     let mut image =TiffEncoder::new(archivo).unwrap();
-    image.write_image::<colortype::Gray32Float>(cols as u32,rows as u32 , &idw_matrix).unwrap();
-    comparar_tif("IDW_2.tif", "IDW_t2.tif");
+    image.write_image::<colortype::Gray32Float>(cols as u32,rows as u32 , &idw_final).unwrap();
+    comparar_tif("IDW_2.tif", "IDW_t2_p.tif");
+    
 }
 //--------------------------------------------------------
 //--------------------------------------------------------    
@@ -158,7 +186,9 @@ fn cd_met(comunidad: &Cell, rows: usize, cols: usize, fric_matrix: &Vec<f32>) ->
     }
     return cd_matrix;
 }
-fn idw_met (comunidad: &Cell,cd_matrix: &Vec<f32>, idw_matrix: &mut Vec<f32>){
+fn idw_met (comunidad: &Cell,cd_matrix: &Vec<f32>)->Vec<f32>{
+    let mut idw_matrix = Vec::new();
+    idw_matrix.resize(cd_matrix.len(),0f32);
     let exp=1.005;
     let OrderedFloat(req)=comunidad.friccion; 
     for i in 0..idw_matrix.len(){
@@ -169,6 +199,7 @@ fn idw_met (comunidad: &Cell,cd_matrix: &Vec<f32>, idw_matrix: &mut Vec<f32>){
             idw_matrix[i] += req / cd_matrix[i].powf(exp);
         }
     }
+    return idw_matrix;
 }
 fn comparar_tif(img1:&str, img2:&str){
     let mut rows=0;
