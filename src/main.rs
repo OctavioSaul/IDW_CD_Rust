@@ -48,15 +48,15 @@ fn main() {
     */
     let mut rows=0;
     let mut cols=0;
-    let fric_img = match leer_img("fric_t2.tif",&mut rows,&mut cols){
+    let fric_img = match leer_img("fricc_singeo0.tif",&mut rows,&mut cols){
         tiff::decoder::DecodingResult::F32(v) => v,
         _ => panic!("paniccccc"),
     };
-    let locs_img = match leer_img("locs_t2.tif",&mut rows,&mut cols){
+    let locs_img = match leer_img("mapa_locs_20.tif",&mut rows,&mut cols){
         tiff::decoder::DecodingResult::F32(v) => v,
         _ => panic!("paniccccc "),
     };
-    let mut localidades = leer_csv("use_t2.csv");
+    let mut localidades = leer_csv("fwuse_20.csv");
     for row in 0..rows{
         for col in 0..cols{
             if locs_img[(cols*row)+col]!=-9999.0{
@@ -93,17 +93,24 @@ fn main() {
     for handle in handles {
         handle.join().unwrap();
     }
-
+    
     let mut idw_final=idw_final.lock().unwrap();
     for com in localidades2.iter() {
         let it =((cols*com.row)+com.col) as usize;
         idw_final[it]=-9999.0;
     }
-    println!("{:?}", idw_final);
-    let archivo= File::create("IDW_t2_p.tif").unwrap();
+    for row in 0..rows{
+        for col in 0..cols{
+            if idw_final[(cols*row)+col]<=0.0{
+                idw_final[(cols*row)+col]=-9999.0; 
+            }
+        }
+    }
+    //println!("{:?}", idw_final);
+    let archivo= File::create("IDW_20Rust.tif").unwrap();
     let mut image =TiffEncoder::new(archivo).unwrap();
     image.write_image::<colortype::Gray32Float>(cols as u32,rows as u32 , &idw_final).unwrap();
-    comparar_tif("IDW_2.tif", "IDW_t2_p.tif");
+    comparar_tif("IDW_20.tif", "IDW_20Rust.tif");
     
 }
 //--------------------------------------------------------
@@ -141,21 +148,17 @@ fn cd_met(comunidad: &Cell, rows: usize, cols: usize, fric_matrix: &Vec<f32>) ->
     let cols=cols as isize;
     let mut cd_matrix = Vec::new();
     cd_matrix.resize(fric_matrix.len(),f32::INFINITY);
-    println!("rows: {}, cols: {}",rows,cols);
-    println!("{:?}",cd_matrix);
     let mut cd_map = BinaryHeap::new();   
     let mut pos_cell=comunidad.clone();
     pos_cell.key=0;
     pos_cell.friccion=OrderedFloat(0.0);
-    println!("{:?}",pos_cell);
     cd_map.push(pos_cell.clone());//comunidad inicial
-    println!("{:?}",cd_map);
     let mut cont = 1;
     let mut row_temp;
     let mut col_temp;
     let mov: [[isize;8];2] =[[1,1,0,-1,-1,-1,0,1],[0,1,1,1,0,-1,-1,-1]];
     //---------------------------------------------------------------inicia calculo
-    while let Some(Cell {row,col, friccion:costo_acumulado, key }) = cd_map.pop(){
+    while let Some(Cell {row,col, friccion:costo_acumulado, key:_ }) = cd_map.pop(){
        // println!("{}",key);
         for i in 1..9{
             let mut pos_cell=pos_cell.clone();
@@ -216,10 +219,11 @@ fn comparar_tif(img1:&str, img2:&str){
         _ => panic!("paniccccc"),
     };
     println!("imagen 2, rows: {} cols: {}",rows,cols);
-    for i in 0..mat1.len(){
+    for i in 0..mat2.len(){
         val_abs=(mat1[i]-mat2[i]).abs();
         if val_abs > 0.01{
             distintas+=1;
+            println!("D5: {}, Rust: {}",mat1[i],mat2[i]);
         }    
     }
     println!("celdas distintas: {}",distintas);
