@@ -8,6 +8,7 @@ use ordered_float::OrderedFloat;
 use std::sync::Arc;
 use std::thread;
 use std::sync::Mutex;
+use std::time::{Instant};
 // This makes the csv crate accessible to your program.
 extern crate csv;
 // Import the standard library's I/O module so we can read from stdin.
@@ -46,17 +47,18 @@ fn main() {
         });
     }
     */
+    let inicio = Instant::now();
     let mut rows=0;
     let mut cols=0;
-    let fric_img = match leer_img("fricc_singeo0.tif",&mut rows,&mut cols){
+    let fric_img = match leer_img("/root/modelos/Kenia/fricc_singeo0.tif",&mut rows,&mut cols){
         tiff::decoder::DecodingResult::F32(v) => v,
         _ => panic!("paniccccc"),
     };
-    let locs_img = match leer_img("mapa_locs_20.tif",&mut rows,&mut cols){
+    let locs_img = match leer_img("/root/modelos/Kenia/20_comunidades/mapa_locs_20.tif",&mut rows,&mut cols){
         tiff::decoder::DecodingResult::F32(v) => v,
         _ => panic!("paniccccc "),
     };
-    let mut localidades = leer_csv("fwuse_20.csv");
+    let mut localidades = leer_csv("/root/modelos/Kenia/20_comunidades/fwuse_20.csv");
     for row in 0..rows{
         for col in 0..cols{
             if locs_img[(cols*row)+col]!=-9999.0{
@@ -70,6 +72,7 @@ fn main() {
     let mut idw_final = Vec::new();
     idw_final.resize(fric_img.len(),0f32);
 
+    let calculo = Instant::now();
     let localidades2=localidades.clone();
     let fric_img=Arc::new(fric_img);
     let idw_final=Arc::new(Mutex::new(idw_final));
@@ -94,6 +97,7 @@ fn main() {
         handle.join().unwrap();
     }
     
+    println!("tiempo calculo: {}", calculo.elapsed().as_secs());
     let mut idw_final=idw_final.lock().unwrap();
     for com in localidades2.iter() {
         let it =((cols*com.row)+com.col) as usize;
@@ -107,10 +111,11 @@ fn main() {
         }
     }
     //println!("{:?}", idw_final);
-    let archivo= File::create("IDW_20Rust.tif").unwrap();
+    let archivo= File::create("/root/modelos/Kenia/20_comunidades/ParallelR/IDW_20Rust.tif").unwrap();
     let mut image =TiffEncoder::new(archivo).unwrap();
     image.write_image::<colortype::Gray32Float>(cols as u32,rows as u32 , &idw_final).unwrap();
-    comparar_tif("IDW_20.tif", "IDW_20Rust.tif");
+    println!("tiempo total: {}", inicio.elapsed().as_secs());
+    comparar_tif("/root/modelos/Kenia/20_comunidades/D5/IDW_20.tif", "/root/modelos/Kenia/20_comunidades/ParallelR/IDW_20Rust.tif");
     
 }
 //--------------------------------------------------------
@@ -221,7 +226,8 @@ fn comparar_tif(img1:&str, img2:&str){
     println!("imagen 2, rows: {} cols: {}",rows,cols);
     for i in 0..mat2.len(){
         val_abs=(mat1[i]-mat2[i]).abs();
-        if val_abs > 0.01{
+        val_abs/=mat1[i];//error relativo 
+        if val_abs > 0.001{
             distintas+=1;
             println!("D5: {}, Rust: {}",mat1[i],mat2[i]);
         }    
