@@ -7,8 +7,8 @@ use std::collections::BinaryHeap;
 use ordered_float::OrderedFloat;
 use std::sync::Arc;
 use std::thread;
-use std::sync::Mutex;
 use std::time::{Instant};
+use std::sync::mpsc;
 // This makes the csv crate accessible to your program.
 extern crate csv;
 // Import the standard library's I/O module so we can read from stdin.
@@ -38,15 +38,6 @@ impl PartialOrd for Cell {
     }
 }
 fn main() {
-    /*
-    let five = Arc::new("sinko");
-    for _ in 0..10 {
-        let five = Arc::clone(&five);
-        thread::spawn(move || {
-            println!("{:?}", five);
-        });
-    }
-    */
     let inicio = Instant::now();
     let mut rows=0;
     let mut cols=0;
@@ -75,30 +66,26 @@ fn main() {
     let calculo = Instant::now();
     let localidades2=localidades.clone();
     let fric_img=Arc::new(fric_img);
-    let idw_final=Arc::new(Mutex::new(idw_final));
 
-    let mut handles = vec![];
+    let (tx,rx)=mpsc::channel();
 
     while let Some(com) = localidades.pop(){
         let fric_img = Arc::clone(&fric_img);
-        let idw_final=Arc::clone(&idw_final);
-        let handle= thread::spawn(move || {
+        let tx1=tx.clone();
+        thread::spawn(move ||{   
             let cd_matrix=cd_met(&com,rows, cols,&fric_img);    
-            let idw_parcial=idw_met(&com,&cd_matrix);    
-            let mut idw_final= idw_final.lock().unwrap();
-            for a in 0..idw_final.len(){
-                idw_final[a]+=idw_parcial[a];
-            }
+            let idw_parcial=idw_met(&com,&cd_matrix);  
+            tx1.send(idw_parcial).unwrap();
         });
-
-        handles.push(handle);
     }
-    for handle in handles {
-        handle.join().unwrap();
+    drop(tx);
+    for idw_parcial in rx{
+        for a in 0..idw_final.len(){
+            idw_final[a]+=idw_parcial[a];
+        }
     }
     
-    println!("tiempo calculo: {}", calculo.elapsed().as_secs());
-    let mut idw_final=idw_final.lock().unwrap();
+    println!("tiempo calculo: {}", calculo.elapsed().as_millis());
     for com in localidades2.iter() {
         let it =((cols*com.row)+com.col) as usize;
         idw_final[it]=-9999.0;
@@ -110,7 +97,6 @@ fn main() {
             }
         }
     }
-    //println!("{:?}", idw_final);
     let archivo= File::create("/root/modelos/Kenia/20_comunidades/ParallelR/IDW_20Rust.tif").unwrap();
     let mut image =TiffEncoder::new(archivo).unwrap();
     image.write_image::<colortype::Gray32Float>(cols as u32,rows as u32 , &idw_final).unwrap();
